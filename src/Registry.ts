@@ -176,7 +176,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
         useEffect(() => {
             handlers.push(handler);
 
-            return () => arrayRemove(handlers, handler);
+            return () => { arrayRemove(handlers, handler); };
         }, reactEffectDependencies);
     }
 
