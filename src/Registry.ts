@@ -212,7 +212,8 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
 
         let index = 0;
         while(index < callbacks.length) {
-            this.fire(callbacks[index].type, callbacks[index].data);
+            /* don't use this.fire since this will trigger a fired event */
+            this.doInvokeEvent(createEvent(callbacks[index].type, callbacks[index].data));
             try {
                 if(callbacks[index].callback) {
                     callbacks[index].callback();
@@ -235,7 +236,8 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             unstable_batchedUpdates(() => {
                 let index = 0;
                 while(index < callbacks.length) {
-                    this.fire(callbacks[index].type, callbacks[index].data);
+                    /* don't use this.fire since this will trigger a fired event */
+                    this.doInvokeEvent(createEvent(callbacks[index].type, callbacks[index].data));
                     try {
                         if(callbacks[index].callback) {
                             callbacks[index].callback();
@@ -366,8 +368,8 @@ export function ReactEventHandler<ObjectClass = React.Component<any, any>, Event
             if(!registry) {
                 throw "Event registry returned for an event object is invalid";
             }
-            registry.registerHandler(this);
 
+            registry.registerHandler(this);
             if(typeof didMount === "function") {
                 didMount.call(this, arguments);
             }
