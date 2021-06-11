@@ -36,14 +36,23 @@ export class IpcEventBridge implements EventConsumer {
             return;
         }
 
-        this.broadcastChannel.postMessage({
-            type: "event",
-            source: this.ownBridgeId,
+        try {
+            this.broadcastChannel.postMessage({
+                type: "event",
+                source: this.ownBridgeId,
 
-            dispatchType,
-            eventType,
-            eventPayload,
-        });
+                dispatchType,
+                eventType,
+                eventPayload,
+            });
+        } catch (error) {
+            if(error instanceof DOMException && error.message.indexOf("could not be cloned") !== -1) {
+                console.warn("[IPC] Failed to fire IPC event %s because an uncloneable object has been passed: %o", error);
+                return;
+            }
+
+            throw error;
+        }
     }
 
     private handleIpcMessage(message: any, _source: MessageEventSource | null, _origin: string) {
