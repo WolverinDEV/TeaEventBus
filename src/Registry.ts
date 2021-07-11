@@ -16,7 +16,6 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
 
     protected persistentEventHandler: { [key: string]: ((event) => void)[] } = {};
     protected oneShotEventHandler: { [key: string]: ((event) => void)[] } = {};
-    protected genericEventHandler: ((event) => void)[] = [];
     protected consumer: EventConsumer[] = [];
 
     private ipcConsumer: IpcEventDispatcher;
@@ -44,7 +43,6 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     destroy() {
         Object.values(this.persistentEventHandler).forEach(handlers => handlers.splice(0, handlers.length));
         Object.values(this.oneShotEventHandler).forEach(handlers => handlers.splice(0, handlers.length));
-        this.genericEventHandler.splice(0, this.genericEventHandler.length);
         this.consumer.splice(0, this.consumer.length);
 
         this.ipcConsumer?.destroy();
@@ -142,15 +140,9 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
         }
     }
 
-    onAll(handler: (event: Event<Events, keyof Events>) => void): () => void {
-        this.genericEventHandler.push(handler);
-        return () => arrayRemove(this.genericEventHandler, handler);
-    }
-
     offAll(handler: (event: Event<Events, keyof Events>) => void) {
         Object.values(this.persistentEventHandler).forEach(persistentHandler => arrayRemove(persistentHandler, handler));
         Object.values(this.oneShotEventHandler).forEach(oneShotHandler => arrayRemove(oneShotHandler, handler));
-        arrayRemove(this.genericEventHandler, handler);
     }
 
     /**
@@ -215,9 +207,6 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             handler(event);
         }
 
-        for(const handler of this.genericEventHandler) {
-            handler(event);
-        }
         /*
         let invokeCount = 0;
         if(this.warnUnhandledEvents && invokeCount === 0) {
