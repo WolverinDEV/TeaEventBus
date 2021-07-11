@@ -12,7 +12,7 @@ interface EventHandlerRegisterData {
 
 const kEventAnnotationKey = guid();
 export class Registry<Events extends EventMap<Events> = EventMap<any>> implements EventSender<Events> {
-    protected readonly registryUniqueId;
+    protected readonly registryMetadataSymbol: symbol;
 
     protected persistentEventHandler: { [key: string]: ((event) => void)[] } = {};
     protected oneShotEventHandler: { [key: string]: ((event) => void)[] } = {};
@@ -38,7 +38,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     }
 
     constructor() {
-        this.registryUniqueId = "evreg_data_" + guid();
+        this.registryMetadataSymbol = Symbol("event registry");
     }
 
     destroy() {
@@ -58,10 +58,6 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     disableWarnUnhandledEvents() { this.warnUnhandledEvents = false; }
 
     fire<T extends keyof Events>(eventType: T, data?: Events[T], overrideTypeKey?: boolean) {
-        if(this.debugPrefix) {
-            eventRegistryHooks.logTrace("[Events] [%s] Trigger event: %s", this.debugPrefix, eventType);
-        }
-
         if(typeof data === "object" && 'type' in data && !overrideTypeKey) {
             if((data as any).type !== eventType) {
                 debugger;
@@ -73,7 +69,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             consumer.handleEvent("sync", eventType as string, data);
         }
 
-        this.doInvokeEvent(createEvent(eventType, data));
+        this.doInvokeEvent("sync", createEvent(eventType, data));
     }
 
     fire_later<T extends keyof Events>(eventType: T, data?: Events[T], callback?: () => void) {
@@ -161,17 +157,39 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     /**
      * @param event
      * @param handler
+     * @param reactEffectDependencies
+     */
+    reactUse<T extends keyof Events>(event: T | T[], handler: (event: Event<Events, T>) => void, reactEffectDependencies?: any[]);
+
+    /**
+     * @param event
+     * @param handler
      * @param condition If a boolean the event handler will only be registered if the condition is true
      * @param reactEffectDependencies
      */
     reactUse<T extends keyof Events>(event: T | T[], handler: (event: Event<Events, T>) => void, condition?: boolean, reactEffectDependencies?: any[]);
     reactUse(event, handler, condition?, reactEffectDependencies?) {
+        if(Array.isArray(condition)) {
+            reactEffectDependencies = condition;
+            condition = undefined;
+        }
+
         if(typeof condition === "boolean" && !condition) {
             useEffect(() => {});
             return;
         }
 
-        const handlers = this.persistentEventHandler[event as any] || (this.persistentEventHandler[event as any] = []);
+        if(!Array.isArray(reactEffectDependencies)) {
+            reactEffectDependencies = [];
+        }
+
+        /*
+         * Register the current registry as effect dependency since if the registry changes we need to register the event to
+         * the new registry.
+         */
+        reactEffectDependencies.push(this.registryMetadataSymbol);
+
+        const handlers = this.persistentEventHandler[event] || (this.persistentEventHandler[event] = []);
 
         useEffect(() => {
             handlers.push(handler);
@@ -180,7 +198,11 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
         }, reactEffectDependencies);
     }
 
-    private doInvokeEvent(event: Event<Events, keyof Events>) {
+    private doInvokeEvent(dispatchType: string, event: Event<Events, keyof Events>) {
+        if(this.debugPrefix) {
+            eventRegistryHooks.logTrace("[%s] Invoke %s event: %s", this.debugPrefix, dispatchType, event.type);
+        }
+
         const oneShotHandler = this.oneShotEventHandler[event.type];
         if(oneShotHandler) {
             delete this.oneShotEventHandler[event.type];
@@ -213,7 +235,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
         let index = 0;
         while(index < callbacks.length) {
             /* don't use this.fire since this will trigger a fired event */
-            this.doInvokeEvent(createEvent(callbacks[index].type, callbacks[index].data));
+            this.doInvokeEvent("async", createEvent(callbacks[index].type, callbacks[index].data));
             try {
                 if(callbacks[index].callback) {
                     callbacks[index].callback();
@@ -237,7 +259,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
                 let index = 0;
                 while(index < callbacks.length) {
                     /* don't use this.fire since this will trigger a fired event */
-                    this.doInvokeEvent(createEvent(callbacks[index].type, callbacks[index].data));
+                    this.doInvokeEvent("react", createEvent(callbacks[index].type, callbacks[index].data));
                     try {
                         if(callbacks[index].callback) {
                             callbacks[index].callback();
@@ -256,7 +278,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             throw "event handler must be an object";
         }
 
-        if(typeof handler[this.registryUniqueId] !== "undefined") {
+        if(typeof handler[this.registryMetadataSymbol] !== "undefined") {
             throw "event handler already registered";
         }
 
@@ -265,7 +287,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             throw "event handler must have a prototype";
         }
 
-        const data = handler[this.registryUniqueId] = {
+        const data = handler[this.registryMetadataSymbol] = {
             registeredHandler: {}
         } as EventHandlerRegisterData;
 
@@ -305,12 +327,12 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             throw "event handler must be an object";
         }
 
-        if(typeof handler[this.registryUniqueId] === "undefined") {
+        if(typeof handler[this.registryMetadataSymbol] === "undefined") {
             throw "event handler not registered";
         }
 
-        const data = handler[this.registryUniqueId] as EventHandlerRegisterData;
-        delete handler[this.registryUniqueId];
+        const data = handler[this.registryMetadataSymbol] as EventHandlerRegisterData;
+        delete handler[this.registryMetadataSymbol];
 
         for(const event of Object.keys(data.registeredHandler)) {
             for(const handler of data.registeredHandler[event]) {
@@ -356,7 +378,7 @@ export function EventHandler<EventTypes>(events: (keyof EventTypes) | (keyof Eve
     }
 }
 
-export function ReactEventHandler<ObjectClass = React.Component<any, any>, Events = any>(registry_callback: (object: ObjectClass) => Registry<Events>) {
+export function ReactEventHandler<ObjectClass = React.Component<any, any>, Events = any>(registryCallback: (object: ObjectClass) => Registry<Events>) {
     return function (constructor: Function) {
         if(!React.Component.prototype.isPrototypeOf(constructor.prototype)) {
             throw "Class/object isn't an instance of React.Component";
@@ -364,7 +386,7 @@ export function ReactEventHandler<ObjectClass = React.Component<any, any>, Event
 
         const didMount = constructor.prototype.componentDidMount;
         constructor.prototype.componentDidMount = function() {
-            const registry = registry_callback(this);
+            const registry = registryCallback(this);
             if(!registry) {
                 throw "Event registry returned for an event object is invalid";
             }
@@ -377,7 +399,7 @@ export function ReactEventHandler<ObjectClass = React.Component<any, any>, Event
 
         const willUnmount = constructor.prototype.componentWillUnmount;
         constructor.prototype.componentWillUnmount = function () {
-            const registry = registry_callback(this);
+            const registry = registryCallback(this);
             if(!registry) {
                 throw "Event registry returned for an event object is invalid";
             }

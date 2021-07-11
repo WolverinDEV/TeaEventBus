@@ -11,9 +11,9 @@ export type EventPayloadObject = any;
 
 export type EventMap<P> = {
     [K in keyof P]: EventPayloadObject & {
-    /* prohibit the type attribute on the highest layer (used to identify the event type) */
-    type?: never
-}
+        /* prohibit the type attribute on the highest layer (used to identify the event type) */
+        type?: never
+    }
 };
 
 export type Event<P extends EventMap<P>, T extends keyof P> = {
