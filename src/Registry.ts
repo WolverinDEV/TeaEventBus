@@ -106,8 +106,12 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
 
         return () => {
             for(const event of events as string[]) {
-                const registeredHandler = handlerArray[event] || (handlerArray[event] = []);
-                arrayRemove(registeredHandler, handler);
+                const registeredHandler = handlerArray[event];
+                if(Array.isArray(registeredHandler)) {
+                    arrayRemove(registeredHandler, handler);
+                } else {
+                    /* Event does not exists any more */
+                }
             }
         };
     }
@@ -166,15 +170,15 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
             return;
         }
 
-        if(!Array.isArray(reactEffectDependencies)) {
-            reactEffectDependencies = [];
+        if(Array.isArray(reactEffectDependencies)) {
+            /*
+             * Register the current registry as effect dependency since if the registry changes we need to register the event to
+             * the new registry.
+             */
+            reactEffectDependencies.push(this.registryMetadataSymbol);
+        } else {
+            /* The unregister callback will be called every times anyways so we're good to go. */
         }
-
-        /*
-         * Register the current registry as effect dependency since if the registry changes we need to register the event to
-         * the new registry.
-         */
-        reactEffectDependencies.push(this.registryMetadataSymbol);
 
         const handlers = this.persistentEventHandler[event] || (this.persistentEventHandler[event] = []);
 
