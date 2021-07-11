@@ -126,7 +126,8 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     off<T extends keyof Events>(events: T | T[], handler: (event: Event<Events, T>) => void);
     off(handlerOrEvents, handler?) {
         if(typeof handlerOrEvents === "function") {
-            this.offAll(handler);
+            Object.values(this.persistentEventHandler).forEach(persistentHandler => arrayRemove(persistentHandler, handler));
+            Object.values(this.oneShotEventHandler).forEach(oneShotHandler => arrayRemove(oneShotHandler, handler));
         } else if(typeof handlerOrEvents === "string") {
             if(this.persistentEventHandler[handlerOrEvents]) {
                 arrayRemove(this.persistentEventHandler[handlerOrEvents], handler);
@@ -138,11 +139,6 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
         } else if(Array.isArray(handlerOrEvents)) {
             handlerOrEvents.forEach(handler_or_event => this.off(handler_or_event, handler));
         }
-    }
-
-    offAll(handler: (event: Event<Events, keyof Events>) => void) {
-        Object.values(this.persistentEventHandler).forEach(persistentHandler => arrayRemove(persistentHandler, handler));
-        Object.values(this.oneShotEventHandler).forEach(oneShotHandler => arrayRemove(oneShotHandler, handler));
     }
 
     /**

@@ -34,7 +34,8 @@ export class IpcEventDispatcher implements EventConsumer {
     }
 
     handleEvent(dispatchType: EventDispatchType, eventType: string, eventPayload: any) {
-        if(eventPayload && eventPayload[this.localDispatchId]) {
+        if(this.localDispatchSymbol in eventPayload) {
+            /* We dispatched that event */
             return;
         }
 
@@ -64,8 +65,8 @@ export class IpcEventDispatcher implements EventConsumer {
         }
 
         if(message.type === "event") {
-            const payload = message.eventPayload || {};
-            payload[this.localDispatchId] = true;
+            const payload = message.eventPayload;
+            payload[this.localDispatchSymbol] = true;
             switch(message.dispatchType as EventDispatchType) {
                 case "sync":
                     this.registry.fire(message.eventType, payload);
