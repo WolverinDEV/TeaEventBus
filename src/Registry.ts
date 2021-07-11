@@ -1,6 +1,6 @@
-import {arrayRemove, createEvent, guid} from "./Helper";
+import {arrayRemove, createEvent, guid, validateEventPayload} from "./Helper";
 import {Event, EventConsumer, EventMap, EventSender} from "./Events";
-import {IpcEventBridge, IpcRegistryDescription} from "./Ipc";
+import {IpcEventDispatcher, IpcRegistryDescription} from "./Ipc";
 import {eventRegistryHooks} from "./Hook";
 import {useEffect} from "react";
 import {unstable_batchedUpdates} from "react-dom";
@@ -19,7 +19,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     protected genericEventHandler: ((event) => void)[] = [];
     protected consumer: EventConsumer[] = [];
 
-    private ipcConsumer: IpcEventBridge;
+    private ipcConsumer: IpcEventDispatcher;
 
     private debugPrefix = undefined;
     private warnUnhandledEvents = false;
@@ -32,7 +32,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
 
     static fromIpcDescription<Events extends EventMap<Events> = EventMap<any>>(description: IpcRegistryDescription<Events>) : Registry<Events> {
         const registry = new Registry<Events>();
-        registry.ipcConsumer = new IpcEventBridge(registry as any, description.ipcChannelId);
+        registry.ipcConsumer = new IpcEventDispatcher(registry as any, description.ipcChannelId);
         registry.registerConsumer(registry.ipcConsumer);
         return registry;
     }
@@ -57,14 +57,8 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     enableWarnUnhandledEvents() { this.warnUnhandledEvents = true; }
     disableWarnUnhandledEvents() { this.warnUnhandledEvents = false; }
 
-    fire<T extends keyof Events>(eventType: T, data?: Events[T], overrideTypeKey?: boolean) {
-        if(typeof data === "object" && 'type' in data && !overrideTypeKey) {
-            if((data as any).type !== eventType) {
-                debugger;
-                throw "The keyword 'type' is reserved for the event type and should not be passed as argument";
-            }
-        }
-
+    fire<T extends keyof Events>(eventType: T, data?: Events[T]) {
+        data = validateEventPayload(eventType, data);
         for(const consumer of this.consumer) {
             consumer.handleEvent("sync", eventType as string, data);
         }
@@ -73,6 +67,8 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     }
 
     fire_later<T extends keyof Events>(eventType: T, data?: Events[T], callback?: () => void) {
+        data = validateEventPayload(eventType, data);
+
         if(!this.pendingAsyncCallbacksTimeout) {
             this.pendingAsyncCallbacksTimeout = setTimeout(() => this.invokeAsyncCallbacks());
             this.pendingAsyncCallbacks = [];
@@ -85,6 +81,8 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
     }
 
     fire_react<T extends keyof Events>(eventType: T, data?: Events[T], callback?: () => void) {
+        data = validateEventPayload(eventType, data);
+
         if(!this.pendingReactCallbacks) {
             this.pendingReactCallbacksFrame = requestAnimationFrame(() => this.invokeReactCallbacks());
             this.pendingReactCallbacks = [];
@@ -97,32 +95,33 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
         }
     }
 
-    on<T extends keyof Events>(event: T | T[], handler: (event: Event<Events, T>) => void) : () => void;
-    on(events, handler) : () => void {
+    private registerHandlerCallback<T extends keyof Events>(type: "persistent" | "one-shot", events: T | T[], handler: (event: Event<Events, T>) => void) : () => void {
         if(!Array.isArray(events)) {
             events = [events];
         }
 
+        const handlerArray = type === "persistent" ? this.persistentEventHandler : this.oneShotEventHandler;
         for(const event of events as string[]) {
-            const persistentHandler = this.persistentEventHandler[event] || (this.persistentEventHandler[event] = []);
-            persistentHandler.push(handler);
+            const registeredHandler = handlerArray[event] || (handlerArray[event] = []);
+            registeredHandler.push(handler);
         }
 
-        return () => this.off(events, handler);
+        return () => {
+            for(const event of events as string[]) {
+                const registeredHandler = handlerArray[event] || (handlerArray[event] = []);
+                arrayRemove(registeredHandler, handler);
+            }
+        };
+    }
+
+    on<T extends keyof Events>(event: T | T[], handler: (event: Event<Events, T>) => void) : () => void;
+    on(events, handler) : () => void {
+        return this.registerHandlerCallback("persistent", events, handler);
     }
 
     one<T extends keyof Events>(event: T | T[], handler: (event: Event<Events, T>) => void) : () => void;
     one(events, handler) : () => void {
-        if(!Array.isArray(events)) {
-            events = [events];
-        }
-
-        for(const event of events as string[]) {
-            const persistentHandler = this.oneShotEventHandler[event] || (this.oneShotEventHandler[event] = []);
-            persistentHandler.push(handler);
-        }
-
-        return () => this.off(events, handler);
+        return this.registerHandlerCallback("one-shot", events, handler);
     }
 
     off(handler: (event: Event<Events, keyof Events>) => void);
@@ -354,7 +353,7 @@ export class Registry<Events extends EventMap<Events> = EventMap<any>> implement
 
     generateIpcDescription() : IpcRegistryDescription<Events> {
         if(!this.ipcConsumer) {
-            this.ipcConsumer = new IpcEventBridge(this as any, undefined);
+            this.ipcConsumer = new IpcEventDispatcher(this as any, undefined);
             this.registerConsumer(this.ipcConsumer);
         }
 

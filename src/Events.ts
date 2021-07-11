@@ -30,7 +30,7 @@ export type Event<P extends EventMap<P>, T extends keyof P> = {
 } & P[T];
 
 export interface EventSender<Events extends EventMap<Events> = EventMap<any>> {
-    fire<T extends keyof Events>(event_type: T, data?: Events[T], overrideTypeKey?: boolean);
+    fire<T extends keyof Events>(event_type: T, data?: Events[T]);
 
     /**
      * Fire an event later by using setTimeout(..)

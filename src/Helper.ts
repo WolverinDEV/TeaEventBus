@@ -46,6 +46,17 @@ export function createEvent<P extends EventMap<P>, T extends keyof P>(type: T, p
     }
 }
 
+export function validateEventPayload<P extends EventMap<P>, T extends keyof P>(type: T, payload?: P[T]) : P[T] {
+    if(typeof payload === "object" && 'type' in payload) {
+        if((payload as any).type !== type) {
+            debugger;
+            throw "The keyword 'type' is reserved for the event type and should not be passed as argument";
+        }
+    }
+
+    return payload || {} as any;
+}
+
 function extractPayload() {
     const result = Object.assign({}, this);
     delete result["as"];

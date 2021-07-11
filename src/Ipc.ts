@@ -6,15 +6,17 @@ export type IpcRegistryDescription<Events extends EventMap<Events> = EventMap<an
     ipcChannelId: string
 }
 
-export class IpcEventBridge implements EventConsumer {
+export class IpcEventDispatcher implements EventConsumer {
     readonly registry: Registry;
     readonly ipcChannelId: string;
-    private readonly ownBridgeId: string;
+    private readonly localDispatchId: string;
+    private readonly localDispatchSymbol: symbol;
     private broadcastChannel: BroadcastChannel;
 
     constructor(registry: Registry, ipcChannelId: string | undefined) {
         this.registry = registry;
-        this.ownBridgeId = guid();
+        this.localDispatchId = guid();
+        this.localDispatchSymbol = Symbol("ipc-dispatcher-" + this.localDispatchId);
 
         this.ipcChannelId = ipcChannelId || ("teaspeak-ipc-events-" + guid());
         this.broadcastChannel = new BroadcastChannel(this.ipcChannelId);
@@ -32,14 +34,14 @@ export class IpcEventBridge implements EventConsumer {
     }
 
     handleEvent(dispatchType: EventDispatchType, eventType: string, eventPayload: any) {
-        if(eventPayload && eventPayload[this.ownBridgeId]) {
+        if(eventPayload && eventPayload[this.localDispatchId]) {
             return;
         }
 
         try {
             this.broadcastChannel.postMessage({
                 type: "event",
-                source: this.ownBridgeId,
+                source: this.localDispatchId,
 
                 dispatchType,
                 eventType,
@@ -56,14 +58,14 @@ export class IpcEventBridge implements EventConsumer {
     }
 
     private handleIpcMessage(message: any, _source: MessageEventSource | null, _origin: string) {
-        if(message.source === this.ownBridgeId) {
+        if(message.source === this.localDispatchId) {
             /* It's our own event */
             return;
         }
 
         if(message.type === "event") {
             const payload = message.eventPayload || {};
-            payload[this.ownBridgeId] = true;
+            payload[this.localDispatchId] = true;
             switch(message.dispatchType as EventDispatchType) {
                 case "sync":
                     this.registry.fire(message.eventType, payload);
